@@ -21,7 +21,7 @@ git clone https://github.com/apppps/comfyui-agent.git<br><br>
 
 - very easy work flow : user prompt -> send button.-> workflow.json -> session.json -> AI (inc. chat gpt system prompt) -> user.
 
-- First, enter the ChatGPT API in ai_agent_api.py.
+- First, input your ChatGPT API in ai_agent_api.py .
 
 - When the user prompt Send button is clicked, the user's workflow file [workflow.json] is copied to [session.json]. (This creates a workflow session file inside the ComfyUI-workflow folder.)
 
