@@ -1,3 +1,5 @@
+git clone https://github.com/apppps/comfyui-agent.git
+
 1. Introduce Comfyui-agent.
 
 - With the AI agent included in ComfyUI, it can be a great help for those who are just starting out or are beginners.
