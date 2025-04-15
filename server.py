@@ -723,6 +723,7 @@ class PromptServer():
                 import openai
                 import os
                 import json
+                import requests
                 from datetime import datetime
                 
                 json_data = await request.json()
@@ -764,134 +765,167 @@ class PromptServer():
                 except Exception as e:
                     print(f"Error while saving workflow: {str(e)}")
                 
-                # Get API key
-                api_key = ""
+                # Carregar configurações da LLM
                 api_key_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ai_agent_api.py")
-                
-                print(f"API key file path: {api_key_path}")
-                print(f"API key file exists: {os.path.exists(api_key_path)}")
+                llm_provider = "openai"
+                openai_api_key = ""
+                local_llm_url = "http://127.0.0.1:11434/api/chat"
+                local_llm_model = "gemma:4b"
                 
                 if os.path.exists(api_key_path):
                     try:
                         with open(api_key_path, 'r', encoding='utf-8') as file:
                             for line in file:
                                 if line.startswith("OPENAI_API_KEY"):
-                                    api_key = line.split("=")[1].strip().strip("'").strip('"')
-                                    print("Successfully read API key")
-                                    break
+                                    openai_api_key = line.split("=")[1].strip().strip("'").strip('"')
+                                elif line.startswith("LOCAL_LLM_URL"):
+                                    local_llm_url = line.split("=")[1].strip().strip("'").strip('"')
+                                elif line.startswith("LOCAL_LLM_MODEL"):
+                                    local_llm_model = line.split("=")[1].strip().strip("'").strip('"')
+                                elif line.startswith("LLM_PROVIDER"):
+                                    llm_provider = line.split("=")[1].strip().strip("'").strip('"')
                     except Exception as e:
-                        print(f"API key reading error: {str(e)}")
-                        return web.json_response({"error": "An error occurred while reading the API key."})
+                        print(f"Config reading error: {str(e)}")
+                        return web.json_response({"error": "An error occurred while reading the LLM settings."})
                 
-                if not api_key:
-                    print("API key not found")
-                    return web.json_response({"error": "OpenAI API key is not set. Please set OPENAI_API_KEY in the ai_agent_api.py file."})
+                # System prompt in English instead of Portuguese
+                system_prompt = """You are a ComfyUI expert. Analyze the provided JSON workflow and answer user questions.
+
+Workflow Analysis Steps:
+1. First, identify the IDs and types of each node in the "nodes" object.
+   - KSampler node IDs
+   - VAEDecode node IDs
+   - CheckpointLoaderSimple node IDs (which has VAE output)
+
+2. Carefully analyze the "links" array:
+   - links format: [output_node_ID, output_slot, input_node_ID, input_slot]
+   - Check if the VAE output from CheckpointLoaderSimple (slot 2) is connected to the vae input of VAEDecode
+   - Check if all inputs of all nodes are connected
+
+3. Check parameters for each node (important functions) (examples below):
+   - KSampler node: steps (15~50 appropriate, 100+ inefficient, 1000+ very abnormal), cfg (7~12 appropriate, 20+ high), denoise (0.5~1.0 appropriate)
+   - EmptyLatentImage node: width/height (512~1024 appropriate, 2048+ possible memory issues), batch_size (1~4 appropriate)
+   - If you find abnormal parameter values, inform concisely (ex: "KSampler steps is set to 9999. 15~50 is recommended.")
+   - Don't mention parameters within normal range.
+
+Important Response Rules:
+1. Be clear and concise.
+2. Consider both the user's question and the workflow state.
+3. Check the connection status of nodes in the workflow.
+4. Identify and briefly point out connection errors.
+5. If you find problems, suggest specific values for correction.
+6. When you find incorrect settings or values, respond in the format "Value X is set to Y. Change it to Z."
+7. If all settings are normal, respond only with "There are no issues with the current settings."
+8. Ignore seed values of all nodes.
+9. If the question is ambiguous, respond based on the current state, but mention that additional information would be helpful.
+10. Provide detailed explanations if the user requests.
+11. Don't judge the content of text prompts. Base your analysis only on the node connection structure and configuration states.
+12. Respond in the same language as the user. For example, if the input is in English, respond in English; if it's in Portuguese, respond in Portuguese.
+
+The ComfyUI workflow JSON consists of the following main sections:
+
+1. Metadata:
+   - "id": unique identifier for the workflow
+   - "revision": workflow revision number
+   - "last_node_id": last used node ID
+   - "last_link_id": last used link ID
+   - "version": JSON format version
+
+2. Nodes ("nodes" array):
+   Each node represents an individual component of the workflow and includes the following main fields:
+   - "id": unique identifier for the node
+   - "type": node type (ex: "KSampler", "CLIPTextEncode", "CheckpointLoaderSimple")
+   - "pos": node position on canvas [x, y]
+   - "size": node size [width, height]
+   - "inputs": array of input connections
+     - "localized_name": user-friendly input name
+     - "name": internal input name
+     - "type": input data type (ex: "MODEL", "CONDITIONING", "LATENT")
+     - "link": connected link ID (null if no connection)
+   - "outputs": array of output connections
+     - "localized_name": user-friendly output name
+     - "name": internal output name
+     - "type": output data type
+     - "links": array of connected link IDs (null if no connections)
+   - "widgets_values": array of node configuration values, varies by node type
+     - For KSampler: [seed, control_after_generate, steps, cfg, sampler_name, scheduler, denoise]
+     - For CLIPTextEncode: [prompt text]
+   - "properties": additional metadata about the node
+
+3. Links ("links" array):
+   Each link represents a connection between nodes and is an array in the format:
+   [link_id, source_node_id, source_slot_index, target_node_id, target_slot_index, data_type]
+   - link_id: unique identifier for the link
+   - source_node_id: ID of the source node
+   - source_slot_index: output slot index of the source node
+   - target_node_id: ID of the target node
+   - target_slot_index: input slot index of the target node
+   - data_type: type of data being transmitted (ex: "MODEL", "CONDITIONING")
+
+4. Additional data:
+   - "groups": node group information (if any)
+   - "config": workflow configuration
+   - "extra": additional settings and metadata
+"""
+                
+                # Add current workflow configuration to the prompt
+                system_prompt = system_prompt + "\n\nCurrent workflow configuration:\n" + json.dumps(json.loads(workflow_json), indent=2, ensure_ascii=False)
+                
+                # Construct messages including conversation history
+                messages = [{"role": "system", "content": system_prompt}]
+                
+                # Add previous conversation history (up to 5 messages)
+                for msg in conversation_history[session_id][-5:]:
+                    messages.append(msg)
+                
+                # Add current user message
+                messages.append({"role": "user", "content": user_message})
+                
+                ai_response = ""
                 
                 try:
-                    print("Starting OpenAI API call")
-                    client = openai.OpenAI(api_key=api_key)
-                    
-                    # 시각적 연결과 JSON 데이터를 모두 존중하는 시스템 프롬프트
-                    system_prompt = """당신은 ComfyUI 전문가입니다. 다음 규칙을 따라 답변하세요
-
-워크플로우 분석 단계:
-1. 먼저 "nodes" 객체에서 각 노드의 ID와 유형을 파악하세요.
-   - KSampler 노드의 ID 확인
-   - VAEDecode 노드의 ID 확인
-   - CheckpointLoaderSimple 노드의 ID 확인 (VAE 출력이 있음)
-
-2. "links" 배열을 철저히 분석하세요:
-   - links 형식: [출력노드ID, 출력슬롯, 입력노드ID, 입력슬롯]
-   - CheckpointLoaderSimple의 VAE 출력(슬롯 2)이 VAEDecode의 vae 입력에 연결되어 있는지 확인
-   - 모든 노드의 모든 입력이 연결되어 있는지 확인
-
-3. 각 노드들의 파라미터 확인 (중요 추가 기능) (아래 예시):
-   - KSampler 노드: steps(15~50 적정, 100+ 비효율적, 1000+ 매우 비정상), cfg(7~12 적정, 20+ 높음), denoise(0.5~1.0 적정)
-   - EmptyLatentImage 노드: width/height(512~1024 적정, 2048+ 메모리 문제 가능), batch_size(1~4 적정)
-   - 비정상적인 파라미터 값을 발견하면 간결하게 알려주세요 (예: "KSampler의 steps가 9999로 설정되어 있습니다. 15~50 사이가 권장됩니다.")
-   - 정상적인 파라미터 범위이면 언급하지 마세요.
-   
-중요 응답 규칙:
-1. 간단명료하게 답변하세요.
-2. 사용자의 질문과 워크플로우 상태를 동시에 고려하여 판단하세요.
-3. 워크플로우에서 노드 연결 상태를 확인하세요.
-4. 노드 연결 확인 및 오류를 간단히 지적하세요.
-5. 문제점을 발견하면 즉시 구체적인 수정값을 제안하세요.
-6. 노드의 잘못된 설정이나 값을 발견하면 "X값이 Y로 설정되어 있습니다. Z로 변경하세요." 형식으로 답변하세요.
-7. 모든 설정이 정상이면 "현재 설정에 문제가 없습니다."라고만 답변하세요.
-8. 모든 노드의 seed 값은 무시하세요.
-9. 질문이 불명확하면 현재 상태 기준으로 가능한 답변을 하되, 추가 정보가 필요하다고 말하세요.
-10. 사용자가 원할 경우 자세한 설명을 제공하세요.
-11. 텍스트 프롬프트의 단어 내용은 판단하지 마세요. 노드 연결 구조와 설정 상태만 기준으로 판단하세요.
-12. 사용자 언어 기준으로 답변을 하세요. 예를들어 영어로 입력받으면 영어, 한글은 한글로 답변하세요.
-
-ComfyUI 워크플로우 JSON 데이터는 다음과 같은 주요 섹션으로 구성되어 있습니다:
-
-1. 메타데이터:
-   - "id": 워크플로우의 고유 식별자
-   - "revision": 워크플로우의 리비전 번호
-   - "last_node_id": 마지막으로 사용된 노드 ID
-   - "last_link_id": 마지막으로 사용된 링크 ID
-   - "version": JSON 형식 버전
-
-2. 노드("nodes" 배열):
-   각 노드는 워크플로우의 개별 구성 요소를 나타내며, 다음과 같은 주요 필드를 포함합니다:
-   - "id": 노드의 고유 식별자
-   - "type": 노드 유형 (예: "KSampler", "CLIPTextEncode", "CheckpointLoaderSimple")
-   - "pos": 캔버스에서의 노드 위치 [x, y]
-   - "size": 노드의 크기 [width, height]
-   - "inputs": 입력 연결 배열
-     - "localized_name": 사용자 친화적인 입력 이름
-     - "name": 내부 입력 이름
-     - "type": 입력 데이터 유형 (예: "MODEL", "CONDITIONING", "LATENT")
-     - "link": 연결된 링크 ID (연결이 없는 경우 null)
-   - "outputs": 출력 연결 배열
-     - "localized_name": 사용자 친화적인 출력 이름
-     - "name": 내부 출력 이름
-     - "type": 출력 데이터 유형
-     - "links": 연결된 링크 ID 배열 (연결이 없는 경우 null)
-   - "widgets_values": 노드의 설정값 배열, 노드 유형에 따라 다름
-     - KSampler의 경우: [seed, control_after_generate, steps, cfg, sampler_name, scheduler, denoise]
-     - CLIPTextEncode의 경우: [프롬프트 텍스트]
-   - "properties": 노드에 대한 추가 메타데이터
-
-3. 링크("links" 배열):
-   각 링크는 노드 간의 연결을 나타내며, 다음과 같은 형식의 배열입니다:
-   [link_id, source_node_id, source_slot_index, target_node_id, target_slot_index, data_type]
-   - link_id: 링크의 고유 식별자
-   - source_node_id: 소스 노드의 ID
-   - source_slot_index: 소스 노드의 출력 슬롯 인덱스
-   - target_node_id: 대상 노드의 ID
-   - target_slot_index: 대상 노드의 입력 슬롯 인덱스
-   - data_type: 전송되는 데이터 유형 (예: "MODEL", "CONDITIONING")
-
-4. 추가 데이터:
-   - "groups": 노드 그룹 정보 (있는 경우)
-   - "config": 워크플로우 구성
-   - "extra": 추가 설정 및 메타데이터
-
-"""
-                    
-                    # Add current workflow configuration to the prompt
-                    system_prompt = system_prompt + "\n\n현재 워크플로우 구성:\n" + json.dumps(json.loads(workflow_json), indent=2, ensure_ascii=False)
-                    
-                    # Construct messages including conversation history
-                    messages = [{"role": "system", "content": system_prompt}]
-                    
-                    # Add previous conversation history (up to 5 messages)
-                    for msg in conversation_history[session_id][-5:]:
-                        messages.append(msg)
-                    
-                    # Add current user message
-                    messages.append({"role": "user", "content": user_message})
-                    
-                    print("Calling GPT model")
-                    response = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=messages
-                    )
-                    
-                    ai_response = response.choices[0].message.content
+                    # Usar a OpenAI API ou LLM local conforme configurado
+                    if llm_provider == "openai":
+                        print("Calling OpenAI model")
+                        if not openai_api_key:
+                            return web.json_response({"error": "OpenAI API key is not configured. Please set it in the LLM options."})
+                        
+                        client = openai.OpenAI(api_key=openai_api_key)
+                        response = client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=messages
+                        )
+                        
+                        ai_response = response.choices[0].message.content
+                    else:  # llm_provider == "local"
+                        print(f"Calling local LLM at {local_llm_url}")
+                        if not local_llm_url or not local_llm_model:
+                            return web.json_response({"error": "The API URL or model of the local LLM is not configured. Please set them in the LLM options."})
+                        
+                        # Adaptar formato de mensagens se necessário para API local
+                        # Formato Ollama
+                        response = requests.post(
+                            local_llm_url,
+                            json={
+                                "model": local_llm_model,
+                                "messages": messages,
+                                "stream": False
+                            }
+                        )
+                        
+                        if response.status_code == 200:
+                            response_json = response.json()
+                            # O formato de resposta varia entre APIs, ajuste conforme necessário
+                            if "message" in response_json:
+                                ai_response = response_json["message"]["content"]
+                            elif "choices" in response_json:
+                                ai_response = response_json["choices"][0]["message"]["content"]
+                            else:
+                                ai_response = response_json.get("response", "")
+                        else:
+                            error_msg = f"Error with local LLM API: {response.status_code} - {response.text}"
+                            print(error_msg)
+                            return web.json_response({"error": error_msg})
                     
                     # Save conversation history
                     conversation_history[session_id].append({"role": "user", "content": user_message})
@@ -900,16 +934,121 @@ ComfyUI 워크플로우 JSON 데이터는 다음과 같은 주요 섹션으로 �
                     print(f"AI response: {ai_response[:100]}...")
                     return web.json_response({"response": ai_response})
                     
-                except openai.APIError as e:
-                    print(f"OpenAI API error: {str(e)}")
-                    return web.json_response({"error": f"OpenAI API error: {str(e)}"})
                 except Exception as e:
-                    print(f"Unexpected error: {str(e)}")
-                    return web.json_response({"error": "An unexpected error occurred on the server."})
+                    print(f"LLM API error: {str(e)}")
+                    return web.json_response({"error": f"LLM API error: {str(e)}"})
                     
             except Exception as e:
                 print(f"Error during processing: {str(e)}")
                 return web.json_response({"error": f"Server error: {str(e)}"})
+
+        @routes.get("/api/llm-config")
+        async def get_llm_config(request):
+            try:
+                import os
+                
+                # Ler configurações do arquivo
+                api_key_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ai_agent_api.py")
+                
+                llm_provider = "openai"
+                openai_key = ""
+                local_url = "http://127.0.0.1:11434/api/chat"
+                local_model = "gemma:2b"
+                
+                if os.path.exists(api_key_path):
+                    try:
+                        with open(api_key_path, 'r', encoding='utf-8') as file:
+                            for line in file:
+                                if line.startswith("OPENAI_API_KEY"):
+                                    openai_key = line.split("=")[1].strip().strip("'").strip('"')
+                                elif line.startswith("LOCAL_LLM_URL"):
+                                    local_url = line.split("=")[1].strip().strip("'").strip('"')
+                                elif line.startswith("LOCAL_LLM_MODEL"):
+                                    local_model = line.split("=")[1].strip().strip("'").strip('"')
+                                elif line.startswith("LLM_PROVIDER"):
+                                    llm_provider = line.split("=")[1].strip().strip("'").strip('"')
+                    except Exception as e:
+                        print(f"Config reading error: {str(e)}")
+                        return web.json_response({"error": "An error occurred while reading the LLM settings."})
+                
+                # Por segurança, não enviamos a chave completa da API
+                masked_key = ""
+                if openai_key:
+                    if len(openai_key) > 8:
+                        masked_key = openai_key[:4] + "..." + openai_key[-4:]
+                    else:
+                        masked_key = "****"
+                
+                return web.json_response({
+                    "provider": llm_provider,
+                    "openaiKey": masked_key,
+                    "localUrl": local_url,
+                    "localModel": local_model
+                })
+                
+            except Exception as e:
+                print(f"Error during config retrieval: {str(e)}")
+                return web.json_response({"error": f"Error retrieving configuration: {str(e)}"})
+
+        @routes.post("/api/llm-config")
+        async def post_llm_config(request):
+            try:
+                import os
+                
+                json_data = await request.json()
+                provider = json_data.get("provider", "openai")
+                openai_key = json_data.get("openaiKey", "")
+                local_url = json_data.get("localUrl", "http://127.0.0.1:11434/api/chat")
+                local_model = json_data.get("localModel", "gemma:2b")
+                
+                # Caminho do arquivo de configuração
+                api_key_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ai_agent_api.py")
+                
+                # Ler o arquivo atual
+                existing_config = []
+                if os.path.exists(api_key_path):
+                    with open(api_key_path, 'r', encoding='utf-8') as file:
+                        existing_config = file.readlines()
+                
+                # Atualizar ou adicionar cada configuração
+                updated_openai = False
+                updated_local_url = False
+                updated_local_model = False
+                updated_provider = False
+                
+                for i, line in enumerate(existing_config):
+                    if line.startswith("OPENAI_API_KEY") and openai_key:
+                        existing_config[i] = f"OPENAI_API_KEY = '{openai_key}'\n"
+                        updated_openai = True
+                    elif line.startswith("LOCAL_LLM_URL"):
+                        existing_config[i] = f"LOCAL_LLM_URL = '{local_url}'\n"
+                        updated_local_url = True
+                    elif line.startswith("LOCAL_LLM_MODEL"):
+                        existing_config[i] = f"LOCAL_LLM_MODEL = '{local_model}'\n"
+                        updated_local_model = True
+                    elif line.startswith("LLM_PROVIDER"):
+                        existing_config[i] = f"LLM_PROVIDER = '{provider}'\n"
+                        updated_provider = True
+                
+                # Adicionar configurações ausentes
+                if not updated_openai and openai_key:
+                    existing_config.append(f"OPENAI_API_KEY = '{openai_key}'\n")
+                if not updated_local_url:
+                    existing_config.append(f"LOCAL_LLM_URL = '{local_url}'\n")
+                if not updated_local_model:
+                    existing_config.append(f"LOCAL_LLM_MODEL = '{local_model}'\n")
+                if not updated_provider:
+                    existing_config.append(f"LLM_PROVIDER = '{provider}'\n")
+                
+                # Escrever o arquivo atualizado
+                with open(api_key_path, 'w', encoding='utf-8') as file:
+                    file.writelines(existing_config)
+                
+                return web.json_response({"success": True})
+                
+            except Exception as e:
+                print(f"Error updating config: {str(e)}")
+                return web.json_response({"success": False, "error": str(e)})
 
     async def setup(self):
         timeout = aiohttp.ClientTimeout(total=None) # no timeout
