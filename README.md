@@ -49,7 +49,7 @@ comfy-agent strucure very easy.
 - It will gradually be updated, and others may contribute to its development as well.
   comfyui-agent will continue to improve.
 
-  thank you, 
+  Thank you.
   감사합니다.
 
 
