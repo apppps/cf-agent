@@ -22,15 +22,15 @@ comfy-agent strucure very easy.
        
   user prompt -> workflow.json -> session.json -> AI (inc. chat gpt system prompt) -> user.
 
- 1. First, enter the ChatGPT API in ai_agent_api.py.
+- First, enter the ChatGPT API in ai_agent_api.py.
 
- 2. When the Send button is clicked, the user's workflow file [workflow.json] is copied to [session.json]. (This creates a workflow session file inside the ComfyUI-workflow folder.)
+- When the Send button is clicked, the user's workflow file [workflow.json] is copied to [session.json]. (This creates a workflow session file inside the ComfyUI-workflow folder.)
 
- 4. Next, the session.json file is included in the ChatGPT system prompt and sent.
+- Next, the session.json file is included in the ChatGPT system prompt and sent.
 
- 5. default system prompt can be modified in the server.py file.
+- default system prompt can be modified in the server.py file.
 
- 6. The user receives a response from AI.
+- The user receives a response from AI.
 
 
 3. additional
@@ -48,7 +48,7 @@ comfy-agent strucure very easy.
   thank you, 
   감사합니다.
 
-ScreenShot.
+4. ScreenShot.
 
 ![Image](https://github.com/user-attachments/assets/3c169391-330a-4d7d-8d6c-e483df179a8a)
 ![Image](https://github.com/user-attachments/assets/98492901-6bf7-44be-83e3-572e378979df)
