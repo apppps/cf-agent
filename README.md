@@ -48,7 +48,6 @@
 - Currently, responses are kept as concise as possible. If desired, the system prompt can be modified.
 
   Thank you.
-  감사합니다.
 
 
 <br><br>
