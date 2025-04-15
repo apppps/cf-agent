@@ -124,7 +124,7 @@
       #ai-agent-send:hover {
         background-color: #4a6e9c;
       }
-      /* 노드 스토어 버튼 스타일 */
+      /* Node Store Button Style */
       #node-store-fixed-button {
         position: fixed;
         top: 0;
@@ -149,7 +149,7 @@
     <div id="vue-app"></div>
     
     
-    <!-- AI Agent 토글 버튼 -->
+    <!-- AI Agent Toggle Button -->
     <button id="ai-agent-toggle-button">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M10 3H14C16.2091 3 18 4.79086 18 7V17C18 19.2091 16.2091 21 14 21H10C7.79086 21 6 19.2091 6 17V7C6 4.79086 7.79086 3 10 3Z" stroke="currentColor" stroke-width="2"/>
@@ -177,16 +177,16 @@
     </div>
 
     <script>
-      // 고정된 노드 스토어 버튼 구현
+      // Fixed Node Store Button Implementation
       document.addEventListener("DOMContentLoaded", function() {
-        // 노드 스토어 버튼 기능
+        // Node Store Button Functionality
         const nodeStoreButton = document.getElementById("node-store-fixed-button");
         nodeStoreButton.addEventListener("click", function() {
-          alert("노드 스토어를 준비 중입니다!");
+          alert("Node Store is being prepared!");
         });
       });
 
-      // AI Agent 기능 구현
+      // AI Agent Functionality
       document.addEventListener("DOMContentLoaded", function() {
         const container = document.getElementById("ai-agent-container");
         const toggleButton = document.getElementById("ai-agent-toggle-button");
@@ -195,21 +195,282 @@
         const input = document.getElementById("ai-agent-input");
         const send = document.getElementById("ai-agent-send");
         
-        // 세션 ID 생성
+        // Adicionando o botão de configuração da LLM
+        const configButton = document.createElement("button");
+        configButton.id = "ai-agent-config";
+        configButton.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="currentColor" stroke-width="2"/>
+          <path d="M19.4 15C19.1277 15.8031 19.2583 16.6718 19.7603 17.37C20.2366 17.9434 20.0245 18.7441 19.3576 19.1288L17.5777 20.1976C16.944 20.5658 16.1222 20.3615 15.7331 19.7338C15.2876 18.9989 14.5548 18.5324 13.7008 18.4885C12.8469 18.4446 12.0708 18.828 11.5595 19.5183C11.1412 20.1144 10.336 20.2641 9.72325 19.8619L7.99772 18.7288C7.3681 18.3161 7.19278 17.5096 7.66512 16.9147C8.19585 16.2435 8.35874 15.3927 8.1099 14.5993C7.86107 13.8058 7.22163 13.1829 6.42471 12.9555C5.67242 12.7409 5.23935 11.9591 5.47955 11.211L6.1468 9.2949C6.3749 8.58954 7.13617 8.20919 7.84523 8.41376C8.68811 8.65697 9.5915 8.50062 10.3185 7.99233C11.0455 7.48405 11.5143 6.6729 11.5979 5.79472C11.6745 4.99291 12.3773 4.40471 13.1833 4.46684L15.1028 4.60547C15.8743 4.66539 16.4594 5.32775 16.426 6.10226C16.3889 6.97542 16.7783 7.80736 17.467 8.36114C18.1558 8.91493 19.0594 9.13021 19.9208 8.94882C20.6963 8.78491 21.4606 9.22744 21.6789 9.98919L22.391 11.8917C22.6174 12.6777 22.1706 13.4949 21.3832 13.71C20.5636 13.9331 19.8994 14.4826 19.4 15Z" stroke="currentColor" stroke-width="2"/>
+        </svg>`;
+        configButton.title = "Configurar LLM";
+        configButton.className = "ai-agent-button";
+        
+        // Inserir o botão de configuração na barra de título antes do botão de fechar
+        const headerButtons = document.getElementById("ai-agent-header-buttons");
+        headerButtons.insertBefore(configButton, closeButton);
+        
+        // Criar o modal de configuração de LLM
+        const configModal = document.createElement("div");
+        configModal.id = "ai-agent-config-modal";
+        configModal.className = "ai-agent-modal-hidden";
+        configModal.innerHTML = `
+          <div class="ai-agent-modal-content">
+            <div class="ai-agent-modal-header">
+              <h3>LLM Configuration</h3>
+              <button id="ai-agent-modal-close" class="ai-agent-modal-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="ai-agent-modal-body">
+              <form id="llm-config-form">
+                <div class="config-option">
+                  <label>
+                    <input type="radio" name="llm-provider" value="openai" checked> 
+                    OpenAI API
+                  </label>
+                </div>
+                <div class="config-field">
+                  <label for="openai-api-key">OpenAI API Key:</label>
+                  <input type="password" id="openai-api-key" placeholder="sk-..." autocomplete="current-password">
+                </div>
+                
+                <div class="config-option">
+                  <label>
+                    <input type="radio" name="llm-provider" value="local"> 
+                    Local LLM (Ollama, etc)
+                  </label>
+                </div>
+                <div class="config-field">
+                  <label for="local-llm-url">API URL:</label>
+                  <input type="text" id="local-llm-url" placeholder="http://127.0.0.1:11434/api/chat">
+                </div>
+                <div class="config-field">
+                  <label for="local-llm-model">Model Name:</label>
+                  <input type="text" id="local-llm-model" placeholder="gemma:2b">
+                </div>
+                
+                <button type="submit" id="save-llm-config">Save</button>
+              </form>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(configModal);
+        
+        // Adicionar estilos CSS para o modal
+        const styleElement = document.createElement('style');
+        styleElement.textContent = `
+          .ai-agent-modal-hidden {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+          }
+          
+          #ai-agent-config-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.3s ease;
+          }
+          
+          .ai-agent-modal-content {
+            background-color: #222;
+            border-radius: 8px;
+            width: 400px;
+            max-width: 90%;
+            color: #fff;
+            position: relative;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          }
+          
+          .ai-agent-modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            color: #aaa;
+            cursor: pointer;
+            padding: 0;
+            margin: 0;
+            line-height: 1;
+            position: absolute;
+            right: 10px;
+            top: 10px;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+          }
+          
+          .ai-agent-modal-close:hover {
+            color: #fff;
+            background-color: rgba(255, 255, 255, 0.1);
+          }
+          
+          .ai-agent-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            border-bottom: 1px solid #444;
+          }
+          
+          .ai-agent-modal-header h3 {
+            margin: 0;
+          }
+          
+          .ai-agent-modal-body {
+            padding: 15px;
+          }
+          
+          .config-option {
+            margin-bottom: 15px;
+          }
+          
+          .config-field {
+            margin-bottom: 15px;
+            margin-left: 20px;
+          }
+          
+          .config-field label {
+            display: block;
+            margin-bottom: 5px;
+          }
+          
+          .config-field input {
+            width: 100%;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #444;
+            background-color: #333;
+            color: #fff;
+          }
+          
+          #save-llm-config {
+            background-color: #2c7be5;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+          }
+          
+          #save-llm-config:hover {
+            background-color: #1c63c5;
+          }
+        `;
+        document.head.appendChild(styleElement);
+        
+        // Função para fechar o modal
+        function closeModal() {
+          if (configModal) {
+            configModal.classList.add("ai-agent-modal-hidden");
+            // Forçar o fechamento após um pequeno delay
+            setTimeout(() => {
+              configModal.style.display = "none";
+            }, 300);
+          }
+        }
+
+        // Função para abrir o modal
+        function openModal() {
+          if (configModal) {
+            configModal.style.display = "flex";
+            setTimeout(() => {
+              configModal.classList.remove("ai-agent-modal-hidden");
+            }, 10);
+          }
+        }
+
+        // Gerenciar os eventos do modal
+        const configModalButton = document.getElementById("ai-agent-config");
+        if (configModalButton) {
+          configModalButton.addEventListener("click", function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            openModal();
+          });
+        }
+        
+        // Fechar o modal ao clicar no botão de fechar
+        const modalCloseButton = document.getElementById("ai-agent-modal-close");
+        if (modalCloseButton) {
+          modalCloseButton.addEventListener("click", function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            closeModal();
+          });
+        }
+        
+        // Fechar o modal ao clicar fora dele
+        configModal.addEventListener("click", function(event) {
+          if (event.target === configModal) {
+            closeModal();
+          }
+        });
+
+        // Fechar o modal ao pressionar ESC
+        document.addEventListener("keydown", function(event) {
+          if (event.key === "Escape" && !configModal.classList.contains("ai-agent-modal-hidden")) {
+            closeModal();
+          }
+        });
+        
+        document.getElementById("llm-config-form").addEventListener("submit", function(e) {
+          e.preventDefault();
+          const provider = document.querySelector('input[name="llm-provider"]:checked').value;
+          const openaiKey = document.getElementById("openai-api-key").value;
+          const localUrl = document.getElementById("local-llm-url").value;
+          const localModel = document.getElementById("local-llm-model").value;
+          
+          fetch("/api/llm-config", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              provider,
+              openaiKey,
+              localUrl,
+              localModel
+            })
+          })
+          .then(response => response.json())
+          .then(data => {
+            if (data.success) {
+              addMessage("LLM configuration updated successfully!", "ai");
+              closeModal();
+            } else {
+              addMessage("Error updating configuration: " + data.error, "ai");
+            }
+          })
+          .catch(error => {
+            console.error("Erro ao salvar configurações:", error);
+            addMessage("Error saving LLM settings.", "ai");
+          });
+        });
+        
+        // Session ID Generation
         const sessionId = 'session_' + Date.now();
         
-        // 토글 기능
+        // Toggle Functionality
         toggleButton.addEventListener("click", function() {
           container.classList.toggle("ai-agent-hidden");
           if (!container.classList.contains("ai-agent-hidden")) {
-            // 대화창이 열릴 때 시작 메시지 표시
+            // Show welcome message when chat window opens
             if (messages.children.length === 0) {
-              addMessage("안녕하세요! ComfyUI AI Agent입니다. 노드 관리나 워크플로우 생성을 도와드릴까요?", "ai");
+              addMessage("Hello! I'm ComfyUI AI Agent. How can I help you with node management or workflow creation?", "ai");
             }
           }
         });
         
-        // 닫기 버튼
+        // Close Button
         closeButton.addEventListener("click", function() {
           container.classList.add("ai-agent-hidden");
           toggleButton.innerHTML = `
@@ -222,7 +483,7 @@
           `;
         });
         
-        // 메시지 전송 기능
+        // Message Sending Functionality
         send.addEventListener("click", sendMessage);
         input.addEventListener("keypress", function(e) {
           if (e.key === "Enter" && !e.shiftKey) {
@@ -235,28 +496,28 @@
           const text = input.value.trim();
           if (!text) return;
           
-          console.log("메시지 전송 시작:", text);
+          console.log("Starting message send:", text);
           
           try {
-            // 워크플로우 데이터 가져오기
+            // Get workflow data
             let workflowJson = "{}";
             try {
               const app = window.app;
               if (app && app.graph) {
                 const workflow = app.graph.serialize();
                 workflowJson = JSON.stringify(workflow || {});
-                console.log("워크플로우 데이터 가져옴:", workflowJson.substring(0, 100) + "...");
+                console.log("Workflow data retrieved:", workflowJson.substring(0, 100) + "...");
               } else {
-                console.warn("워크플로우 데이터를 가져올 수 없습니다: app.graph가 없습니다");
+                console.warn("Could not get workflow data: app.graph is not available");
               }
             } catch (e) {
-              console.warn("워크플로우 데이터를 가져올 수 없습니다:", e);
+              console.warn("Could not get workflow data:", e);
             }
             
-            // 사용자 메시지 추가
+            // Add user message
             addMessage(text, "user");
             
-            // API 호출
+            // API Call
             fetch("/api/aiagent", {
               method: "POST",
               headers: {
@@ -269,28 +530,28 @@
               }),
             })
             .then(response => {
-              console.log("서버 응답 상태:", response.status);
+              console.log("Server response status:", response.status);
               return response.json();
             })
             .then(data => {
-              console.log("서버 응답 데이터:", data);
+              console.log("Server response data:", data);
               if (data.response) {
                 addMessage(data.response, "ai");
               } else if (data.error) {
-                addMessage("오류: " + data.error, "ai");
-                console.error("서버 오류:", data.error);
+                addMessage("Error: " + data.error, "ai");
+                console.error("Server error:", data.error);
               }
             })
             .catch(error => {
-              console.error("API 호출 오류:", error);
-              addMessage("서버 오류가 발생했습니다. 나중에 다시 시도해주세요.", "ai");
+              console.error("API call error:", error);
+              addMessage("A server error occurred. Please try again later.", "ai");
             });
             
-            // 입력 필드 초기화
+            // Reset input field
             input.value = "";
           } catch (error) {
-            console.error("메시지 전송 중 오류 발생:", error);
-            addMessage("메시지 전송 중 오류가 발생했습니다.", "ai");
+            console.error("Error sending message:", error);
+            addMessage("An error occurred while sending the message.", "ai");
           }
         }
         
@@ -303,36 +564,36 @@
         }
       });
 
-      // ComfyAgent 클라이언트 모델 통합
+      // Client Model Integration
       document.addEventListener("DOMContentLoaded", function() {
-        // 1초 후에 실행 (ComfyUI가 초기화된 후에 실행하기 위함)
+        // Run after 1 second (to ensure ComfyUI is initialized)
         setTimeout(loadClientModels, 1000);
       });
 
-      // 클라이언트 모델 로드 함수
+      // Client Model Load Function
       async function loadClientModels() {
         try {
-          // ComfyAgent 서버에서 클라이언트 모델 목록 가져오기
+          // Get client model list from ComfyAgent server
           const response = await fetch('/comfyui/client_models?type=checkpoints');
           if (!response.ok) {
-            console.error('클라이언트 모델 가져오기 실패:', response.statusText);
+            console.error('Failed to get client models:', response.statusText);
             return;
           }
           
           const data = await response.json();
-          console.log('클라이언트 모델 데이터:', data);
+          console.log('Client model data:', data);
           
           if (data.models && data.models.length > 0) {
-            // ComfyUI의 모델 리스트 찾기
+            // Find ComfyUI's model list
             const modelDropdowns = document.querySelectorAll('select[data-comfyui-model-type="checkpoints"]');
             
             if (modelDropdowns.length > 0) {
-              // 각 모델 드롭다운에 클라이언트 모델 추가
+              // Add client models to each dropdown
               modelDropdowns.forEach(dropdown => {
-                // 기존 모델 유지
+                // Keep existing models
                 const existingOptions = Array.from(dropdown.options).map(opt => opt.value);
                 
-                // 새 모델 추가
+                // Add new models
                 data.models.forEach(model => {
                   if (!existingOptions.includes(model.name)) {
                     const option = document.createElement('option');
@@ -344,17 +605,17 @@
                 });
               });
               
-              console.log('클라이언트 모델이 드롭다운에 추가되었습니다');
+              console.log('Client models added to dropdown');
             } else {
-              console.warn('모델 드롭다운을 찾을 수 없습니다. ComfyUI가 아직 초기화되지 않았을 수 있습니다');
-              // 다시 시도
+              console.warn('Model dropdowns not found. ComfyUI may not be initialized yet');
+              // Try again
               setTimeout(loadClientModels, 2000);
             }
           } else {
-            console.log('사용 가능한 클라이언트 모델이 없습니다');
+            console.log('No client models available');
           }
         } catch (error) {
-          console.error('클라이언트 모델 로드 중 오류:', error);
+          console.error('Error loading client models:', error);
         }
       }
     </script>
