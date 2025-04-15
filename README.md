@@ -12,8 +12,7 @@
 
 - It detects flows in real time, so you can immediately identify problems with complex node connections.
 
-- you needs chatgpt api and gpt-4o-mini system defaults. 
-
+- system default ai chatgpt-4o-mini. and you needs chatgpt api.
 
 
 2. Architecture & Setup
@@ -33,7 +32,6 @@ comfy-agent strucure very easy.
 - default system prompt can be modified in the server.py file.
 
 - The user receives a response from AI.
-
 
 
 
