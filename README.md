@@ -35,8 +35,7 @@ git clone https://github.com/apppps/comfyui-agent.git<br><br>
 
 3. Additional
 
-- Connecting to a local LLM or other LLMs is not yet supported.
-  This version is an early release and is currently connected to GPT.
+- This version is an early release and is currently connected to GPT.
   The reason is that, so far, GPT has shown the best understanding of ComfyUI JSON files.
 
 - Sometimes it fails to accurately interpret the JSON.
