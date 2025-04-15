@@ -17,11 +17,9 @@
 
 2. Architecture & Setup
 
-comfy-agent structure very easy.
-
-   work flow
+ very easy work flow
        
-  user prompt -> workflow.json -> session.json -> AI (inc. chat gpt system prompt) -> user.
+  user prompt -> send button.-> workflow.json -> session.json -> AI (inc. chat gpt system prompt) -> user.
 
 - First, enter the ChatGPT API in ai_agent_api.py.
 
