@@ -45,6 +45,8 @@ git clone https://github.com/apppps/comfyui-agent.git<br><br>
 - It will gradually be updated, and others may contribute to its development as well.
   comfyui-agent will continue to improve.
 
+-I tried to create a node store integrated with AI, but there were so many people requesting comfyui agent. it that I couldn't implement it. I hope someone else can make it.
+
 - Upgrading to a higher AI model can provide more accurate assistance.
   
 - Currently, responses are kept as concise as possible. If desired, the system prompt can be modified.
