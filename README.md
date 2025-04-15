@@ -45,6 +45,10 @@
 - It will gradually be updated, and others may contribute to its development as well.
   comfyui-agent will continue to improve.
 
+- Upgrading to a higher AI model can provide more accurate assistance.
+- 
+- Currently, responses are kept as concise as possible. If desired, the system prompt can be modified.
+
   Thank you.
   감사합니다.
 
