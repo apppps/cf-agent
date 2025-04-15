@@ -35,7 +35,7 @@ comfy-agent strucure very easy.
 
 <br><br>
 
-3. additional
+3. Additional
 
 - Connecting to a local LLM or other LLMs is not yet supported.
   This version is an early release and is currently connected to GPT.
