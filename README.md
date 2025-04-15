@@ -14,6 +14,8 @@
 
 - you needs chatgpt api and gpt-4o-mini system defaults. 
 
+
+
 2. Architecture & Setup
 
 comfy-agent strucure very easy.
@@ -33,6 +35,8 @@ comfy-agent strucure very easy.
 - The user receives a response from AI.
 
 
+
+
 3. additional
 
 - Connecting to a local LLM or other LLMs is not yet supported.
@@ -47,6 +51,8 @@ comfy-agent strucure very easy.
 
   thank you, 
   감사합니다.
+
+
 
 4. ScreenShot.
 
