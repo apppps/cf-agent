@@ -25,7 +25,7 @@ comfy-agent structure very easy.
 
 - First, enter the ChatGPT API in ai_agent_api.py.
 
-- When the Send button is clicked, the user's workflow file [workflow.json] is copied to [session.json]. (This creates a workflow session file inside the ComfyUI-workflow folder.)
+- When the user prompt Send button is clicked, the user's workflow file [workflow.json] is copied to [session.json]. (This creates a workflow session file inside the ComfyUI-workflow folder.)
 
 - Next, the session.json file is included in the ChatGPT system prompt and sent.
 
