@@ -17,9 +17,9 @@
 
 2. Architecture & Setup
 
-comfy-agent strucure very easy.
+comfy-agent structure very easy.
 
-  easy work flow
+   work flow
        
   user prompt -> workflow.json -> session.json -> AI (inc. chat gpt system prompt) -> user.
 
