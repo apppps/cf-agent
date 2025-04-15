@@ -2,6 +2,7 @@ import os
 import sys
 import asyncio
 import traceback
+import random
 
 import nodes
 import folder_paths
@@ -176,11 +177,22 @@ class PromptServer():
         max_upload_size = round(args.max_upload_size * 1024 * 1024)
         self.app = web.Application(client_max_size=max_upload_size, middlewares=middlewares)
         self.sockets = dict()
-        self.web_root = (
-            FrontendManager.init_frontend(args.front_end_version)
-            if args.front_end_root is None
-            else args.front_end_root
-        )
+        
+        # Explicitly specify the web root directory
+        custom_web_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
+        
+        # Check if custom web directory exists
+        if os.path.exists(custom_web_root):
+            self.web_root = custom_web_root
+            logging.info(f"[Prompt Server] Using custom web root: {self.web_root}")
+        else:
+            self.web_root = (
+                FrontendManager.init_frontend(args.front_end_version)
+                if args.front_end_root is None
+                else args.front_end_root
+            )
+            logging.info(f"[Prompt Server] Using default web root: {self.web_root}")
+        
         logging.info(f"[Prompt Server] web root: {self.web_root}")
         routes = web.RouteTableDef()
         self.routes = routes
@@ -188,6 +200,9 @@ class PromptServer():
         self.client_id = None
 
         self.on_prompt_handlers = []
+
+        # Dictionary to store conversation history
+        conversation_history = {}
 
         @routes.get('/ws')
         async def websocket_handler(request):
@@ -691,16 +706,210 @@ class PromptServer():
 
         @routes.post("/history")
         async def post_history(request):
-            json_data =  await request.json()
+            json_data = await request.json()
             if "clear" in json_data:
                 if json_data["clear"]:
                     self.prompt_queue.wipe_history()
             if "delete" in json_data:
                 to_delete = json_data['delete']
-                for id_to_delete in to_delete:
-                    self.prompt_queue.delete_history_item(id_to_delete)
-
+                for id_to_del in to_delete:
+                    self.prompt_queue.delete_history(id_to_del)
             return web.Response(status=200)
+
+        @routes.post("/api/aiagent")
+        async def post_ai_agent(request):
+            print("AI Agent API call received")
+            try:
+                import openai
+                import os
+                import json
+                from datetime import datetime
+                
+                json_data = await request.json()
+                user_message = json_data.get("message", "")
+                workflow_json = json_data.get("workflow", "{}")
+                session_id = json_data.get("session_id", "default")  # Session ID to distinguish conversations
+                
+                # Initialize conversation history for each session
+                if session_id not in conversation_history:
+                    conversation_history[session_id] = []
+                
+                print(f"User message: {user_message}")
+                
+                # Save workflow JSON
+                workflows_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workflows")
+                os.makedirs(workflows_dir, exist_ok=True)
+                
+                # Use session ID as file name to avoid creating too many files
+                session_workflow_path = os.path.join(workflows_dir, f"workflow_{session_id}.json")
+                
+                try:
+                    # Save the workflow to the session-specific file
+                    with open(session_workflow_path, 'w', encoding='utf-8') as f:
+                        json.dump(json.loads(workflow_json), f, indent=2, ensure_ascii=False)
+                    print(f"Workflow saved: {session_workflow_path}")
+                    
+                    # Optional: Periodically clean up old workflow files
+                    # This runs occasionally (1 in 10 chance) to avoid doing it on every request
+                    if random.random() < 0.1:  # 10% chance to run cleanup
+                        all_workflow_files = glob.glob(os.path.join(workflows_dir, "workflow_*.json"))
+                        if len(all_workflow_files) > 100:  # Keep only 100 most recent files
+                            all_workflow_files.sort(key=os.path.getmtime)
+                            for old_file in all_workflow_files[:-100]:
+                                try:
+                                    os.remove(old_file)
+                                    print(f"Cleaned up old workflow file: {old_file}")
+                                except Exception as e:
+                                    print(f"Error deleting old file: {str(e)}")
+                except Exception as e:
+                    print(f"Error while saving workflow: {str(e)}")
+                
+                # Get API key
+                api_key = ""
+                api_key_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ai_agent_api.py")
+                
+                print(f"API key file path: {api_key_path}")
+                print(f"API key file exists: {os.path.exists(api_key_path)}")
+                
+                if os.path.exists(api_key_path):
+                    try:
+                        with open(api_key_path, 'r', encoding='utf-8') as file:
+                            for line in file:
+                                if line.startswith("OPENAI_API_KEY"):
+                                    api_key = line.split("=")[1].strip().strip("'").strip('"')
+                                    print("Successfully read API key")
+                                    break
+                    except Exception as e:
+                        print(f"API key reading error: {str(e)}")
+                        return web.json_response({"error": "An error occurred while reading the API key."})
+                
+                if not api_key:
+                    print("API key not found")
+                    return web.json_response({"error": "OpenAI API key is not set. Please set OPENAI_API_KEY in the ai_agent_api.py file."})
+                
+                try:
+                    print("Starting OpenAI API call")
+                    client = openai.OpenAI(api_key=api_key)
+                    
+                    # 시각적 연결과 JSON 데이터를 모두 존중하는 시스템 프롬프트
+                    system_prompt = """당신은 ComfyUI 전문가입니다. 다음 규칙을 따라 답변하세요
+
+워크플로우 분석 단계:
+1. 먼저 "nodes" 객체에서 각 노드의 ID와 유형을 파악하세요.
+   - KSampler 노드의 ID 확인
+   - VAEDecode 노드의 ID 확인
+   - CheckpointLoaderSimple 노드의 ID 확인 (VAE 출력이 있음)
+
+2. "links" 배열을 철저히 분석하세요:
+   - links 형식: [출력노드ID, 출력슬롯, 입력노드ID, 입력슬롯]
+   - CheckpointLoaderSimple의 VAE 출력(슬롯 2)이 VAEDecode의 vae 입력에 연결되어 있는지 확인
+   - 모든 노드의 모든 입력이 연결되어 있는지 확인
+
+3. 각 노드들의 파라미터 확인 (중요 추가 기능) (아래 예시):
+   - KSampler 노드: steps(15~50 적정, 100+ 비효율적, 1000+ 매우 비정상), cfg(7~12 적정, 20+ 높음), denoise(0.5~1.0 적정)
+   - EmptyLatentImage 노드: width/height(512~1024 적정, 2048+ 메모리 문제 가능), batch_size(1~4 적정)
+   - 비정상적인 파라미터 값을 발견하면 간결하게 알려주세요 (예: "KSampler의 steps가 9999로 설정되어 있습니다. 15~50 사이가 권장됩니다.")
+   - 정상적인 파라미터 범위이면 언급하지 마세요.
+   
+중요 응답 규칙:
+1. 간단명료하게 답변하세요.
+2. 사용자의 질문과 워크플로우 상태를 동시에 고려하여 판단하세요.
+3. 워크플로우에서 노드 연결 상태를 확인하세요.
+4. 노드 연결 확인 및 오류를 간단히 지적하세요.
+5. 문제점을 발견하면 즉시 구체적인 수정값을 제안하세요.
+6. 노드의 잘못된 설정이나 값을 발견하면 "X값이 Y로 설정되어 있습니다. Z로 변경하세요." 형식으로 답변하세요.
+7. 모든 설정이 정상이면 "현재 설정에 문제가 없습니다."라고만 답변하세요.
+8. 모든 노드의 seed 값은 무시하세요.
+9. 질문이 불명확하면 현재 상태 기준으로 가능한 답변을 하되, 추가 정보가 필요하다고 말하세요.
+10. 사용자가 원할 경우 자세한 설명을 제공하세요.
+11. 텍스트 프롬프트의 단어 내용은 판단하지 마세요. 노드 연결 구조와 설정 상태만 기준으로 판단하세요.
+12. 사용자 언어 기준으로 답변을 하세요. 예를들어 영어로 입력받으면 영어, 한글은 한글로 답변하세요.
+
+ComfyUI 워크플로우 JSON 데이터는 다음과 같은 주요 섹션으로 구성되어 있습니다:
+
+1. 메타데이터:
+   - "id": 워크플로우의 고유 식별자
+   - "revision": 워크플로우의 리비전 번호
+   - "last_node_id": 마지막으로 사용된 노드 ID
+   - "last_link_id": 마지막으로 사용된 링크 ID
+   - "version": JSON 형식 버전
+
+2. 노드("nodes" 배열):
+   각 노드는 워크플로우의 개별 구성 요소를 나타내며, 다음과 같은 주요 필드를 포함합니다:
+   - "id": 노드의 고유 식별자
+   - "type": 노드 유형 (예: "KSampler", "CLIPTextEncode", "CheckpointLoaderSimple")
+   - "pos": 캔버스에서의 노드 위치 [x, y]
+   - "size": 노드의 크기 [width, height]
+   - "inputs": 입력 연결 배열
+     - "localized_name": 사용자 친화적인 입력 이름
+     - "name": 내부 입력 이름
+     - "type": 입력 데이터 유형 (예: "MODEL", "CONDITIONING", "LATENT")
+     - "link": 연결된 링크 ID (연결이 없는 경우 null)
+   - "outputs": 출력 연결 배열
+     - "localized_name": 사용자 친화적인 출력 이름
+     - "name": 내부 출력 이름
+     - "type": 출력 데이터 유형
+     - "links": 연결된 링크 ID 배열 (연결이 없는 경우 null)
+   - "widgets_values": 노드의 설정값 배열, 노드 유형에 따라 다름
+     - KSampler의 경우: [seed, control_after_generate, steps, cfg, sampler_name, scheduler, denoise]
+     - CLIPTextEncode의 경우: [프롬프트 텍스트]
+   - "properties": 노드에 대한 추가 메타데이터
+
+3. 링크("links" 배열):
+   각 링크는 노드 간의 연결을 나타내며, 다음과 같은 형식의 배열입니다:
+   [link_id, source_node_id, source_slot_index, target_node_id, target_slot_index, data_type]
+   - link_id: 링크의 고유 식별자
+   - source_node_id: 소스 노드의 ID
+   - source_slot_index: 소스 노드의 출력 슬롯 인덱스
+   - target_node_id: 대상 노드의 ID
+   - target_slot_index: 대상 노드의 입력 슬롯 인덱스
+   - data_type: 전송되는 데이터 유형 (예: "MODEL", "CONDITIONING")
+
+4. 추가 데이터:
+   - "groups": 노드 그룹 정보 (있는 경우)
+   - "config": 워크플로우 구성
+   - "extra": 추가 설정 및 메타데이터
+
+"""
+                    
+                    # Add current workflow configuration to the prompt
+                    system_prompt = system_prompt + "\n\n현재 워크플로우 구성:\n" + json.dumps(json.loads(workflow_json), indent=2, ensure_ascii=False)
+                    
+                    # Construct messages including conversation history
+                    messages = [{"role": "system", "content": system_prompt}]
+                    
+                    # Add previous conversation history (up to 5 messages)
+                    for msg in conversation_history[session_id][-5:]:
+                        messages.append(msg)
+                    
+                    # Add current user message
+                    messages.append({"role": "user", "content": user_message})
+                    
+                    print("Calling GPT model")
+                    response = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=messages
+                    )
+                    
+                    ai_response = response.choices[0].message.content
+                    
+                    # Save conversation history
+                    conversation_history[session_id].append({"role": "user", "content": user_message})
+                    conversation_history[session_id].append({"role": "assistant", "content": ai_response})
+                    
+                    print(f"AI response: {ai_response[:100]}...")
+                    return web.json_response({"response": ai_response})
+                    
+                except openai.APIError as e:
+                    print(f"OpenAI API error: {str(e)}")
+                    return web.json_response({"error": f"OpenAI API error: {str(e)}"})
+                except Exception as e:
+                    print(f"Unexpected error: {str(e)}")
+                    return web.json_response({"error": "An unexpected error occurred on the server."})
+                    
+            except Exception as e:
+                print(f"Error during processing: {str(e)}")
+                return web.json_response({"error": f"Server error: {str(e)}"})
 
     async def setup(self):
         timeout = aiohttp.ClientTimeout(total=None) # no timeout

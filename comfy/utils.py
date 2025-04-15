@@ -28,6 +28,7 @@ import logging
 import itertools
 from torch.nn.functional import interpolate
 from einops import rearrange
+import pickle as _pickle
 
 ALWAYS_SAFE_LOAD = False
 if hasattr(torch.serialization, "add_safe_globals"):  # TODO: this was added in pytorch 2.4, the unsafe path should be removed once earlier versions are deprecated
@@ -47,6 +48,12 @@ else:
     logging.info("Warning, you are using an old pytorch version and some ckpt/pt files might be loaded unsafely. Upgrading to 2.4 or above is recommended.")
 
 def load_torch_file(ckpt, safe_load=False, device=None, return_metadata=False):
+    import torch
+    import numpy
+    import numpy.core.multiarray
+    import pickle
+    import torch.serialization
+    
     if device is None:
         device = torch.device("cpu")
     metadata = None
@@ -67,10 +74,47 @@ def load_torch_file(ckpt, safe_load=False, device=None, return_metadata=False):
                     raise ValueError("{}\n\nFile path: {}\n\nThe safetensors file is corrupt/incomplete. Check the file size and make sure you have copied/downloaded it correctly.".format(message, ckpt))
             raise e
     else:
-        if safe_load or ALWAYS_SAFE_LOAD:
-            pl_sd = torch.load(ckpt, map_location=device, weights_only=True)
-        else:
-            pl_sd = torch.load(ckpt, map_location=device, pickle_module=comfy.checkpoint_pickle)
+        try:
+            # PyTorch 2.6+ 대응: 먼저 weights_only=True로 시도하고, 실패하면 다른 방법 시도
+            try:
+                if safe_load or ALWAYS_SAFE_LOAD:
+                    pl_sd = torch.load(ckpt, map_location=device, weights_only=True)
+                else:
+                    pl_sd = torch.load(ckpt, map_location=device, pickle_module=comfy.checkpoint_pickle)
+            except Exception as e:
+                # weights_only 오류인지 확인
+                if any(x in str(e) for x in ("numpy.core.multiarray.scalar", "weights_only")):
+                    # numpy.core.multiarray.scalar를 안전한 전역으로 등록 시도
+                    try:
+                        logging.info(f"모델 로드 중 PyTorch 2.6+ 호환성 이슈 발생. 안전한 전역 등록 후 재시도합니다: {ckpt}")
+                        
+                        # 안전한 전역 목록에 추가
+                        if hasattr(torch.serialization, "add_safe_globals"):
+                            torch.serialization.add_safe_globals([numpy.core.multiarray.scalar])
+                        
+                        # 다시 시도
+                        if safe_load or ALWAYS_SAFE_LOAD:
+                            pl_sd = torch.load(ckpt, map_location=device, weights_only=True)
+                        else:
+                            pl_sd = torch.load(ckpt, map_location=device, pickle_module=comfy.checkpoint_pickle)
+                    except Exception:
+                        # 안전한 전역 등록에 실패하면 weights_only=False로 시도
+                        logging.warning(f"체크포인트 로드 실패, weights_only=False로 재시도합니다 (신뢰할 수 있는 소스에서만 사용하세요): {ckpt}")
+                        if safe_load or ALWAYS_SAFE_LOAD:
+                            pl_sd = torch.load(ckpt, map_location=device, weights_only=False)
+                        else:
+                            pl_sd = torch.load(ckpt, map_location=device, pickle_module=comfy.checkpoint_pickle, weights_only=False)
+                else:
+                    # 다른 오류는 그대로 발생
+                    raise
+        except Exception as e:
+            # 마지막 방법: weights_only=False로 시도 (신뢰할 수 있는 체크포인트인 경우만)
+            logging.warning(f"체크포인트 로드 실패, weights_only=False로 재시도합니다 (신뢰할 수 있는 소스에서만 사용하세요): {ckpt}")
+            if safe_load or ALWAYS_SAFE_LOAD:
+                pl_sd = torch.load(ckpt, map_location=device, weights_only=False)
+            else:
+                pl_sd = torch.load(ckpt, map_location=device, pickle_module=comfy.checkpoint_pickle, weights_only=False)
+
         if "global_step" in pl_sd:
             logging.debug(f"Global Step: {pl_sd['global_step']}")
         if "state_dict" in pl_sd:
